@@ -14,6 +14,8 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import lasio
 import numpy as np
+from io import StringIO
+import urllib
 
 from . import utils
 from .fields import las_fields as LAS_FIELDS
@@ -44,19 +46,20 @@ class Well(object):
     """
     Well contains everything about the well.
     """
-    def __init__(self, params):
+    def __init__(self, params=None):
         """
         Generic initializer for now.
         """
-        for k, v in params.items():
-            if k and v:
-                setattr(self, k, v)
-
         if getattr(self, 'data', None) is None:
             self.data = {}
 
         if getattr(self, 'header', None) is None:
             self.header = Header({})
+
+        if params is not None:
+            for k, v in params.items():
+                if k and (v is not None):
+                    setattr(self, k, v)
 
     def __eq__(self, other):
         if (not self.uwi) or (not other.uwi):
@@ -116,7 +119,15 @@ class Well(object):
         Property. Simply a shortcut to the UWI from the header, or the
         empty string if there isn't one.
         """
-        return getattr(self.header, 'uwi', None) or ''
+        return self.header['uwi']
+
+    @property
+    def name(self):
+        """
+        Property. Simply a shortcut to the well name from the header, or the
+        empty string if there isn't one.
+        """
+        return self.header['name']
 
     @classmethod
     def from_lasio(cls, l, remap=None, funcs=None, data=True, req=None, alias=None, fname=None, index=None):
@@ -234,7 +245,7 @@ class Well(object):
         convenient for most purposes.
 
         Args:
-            fname (str): The path of the LAS file.
+            fname (str): The path of the LAS file, or a URL to one.
             remap (dict): Optional. A dict of 'old': 'new' LAS field names.
             funcs (dict): Optional. A dict of 'las field': function() for
                 implementing a transform before loading. Can be a lambda.
@@ -249,10 +260,25 @@ class Well(object):
         """
         if printfname:
             print(fname)
-        l = lasio.read(fname, encoding=encoding)
+            
+        if re.match(r'https?://.+\..+/.+?', fname) is not None:
+            try:
+                data = urllib.request.urlopen(fname).read().decode()
+            except urllib.HTTPError as e:
+                raise WellError('Could not retrieve url: ', e)
+            fname = (StringIO(data))
+
+        las = lasio.read(fname, encoding=encoding)
 
         # Pass to other constructor.
-        return cls.from_lasio(l, remap=remap, funcs=funcs, data=data, req=req, alias=alias, fname=fname, index=index)
+        return cls.from_lasio(l, 
+                              remap=remap, 
+                              funcs=funcs, 
+                              data=data, 
+                              req=req, 
+                              alias=alias,
+                              fname=fname, 
+                              index=index)
 
     def df(self, keys=None, basis=None, uwi=False):
         """
@@ -273,7 +299,12 @@ class Well(object):
             pandas.DataFrame.
 
         """
-        import pandas as pd
+        try:
+            import pandas as pd
+        except:
+            m = "You must install pandas to use dataframes."
+            raise WellError(m)
+
         from pandas.api.types import is_object_dtype
 
         if keys is None:
@@ -388,7 +419,7 @@ class Well(object):
 
         return l
 
-    def to_las(self, fname, keys=None, basis=None):
+    def to_las(self, fname, keys=None, basis=None, **kwargs):
         """
         Writes the current well instance as a LAS file. Essentially just wraps
         ``to_lasio()``, but is more convenient for most purposes.
@@ -402,11 +433,13 @@ class Well(object):
                 include, if not all of them. You can have nested lists, such
                 as you might use for ``tracks`` in ``well.plot()``.
 
+        Other keyword args are passed to lasio.LASFile.write.
+
         Returns:
             None. Writes the file as a side-effect.
         """
         with open(fname, 'w') as f:
-            self.to_lasio(keys=keys, basis=basis).write(f)
+            self.to_lasio(keys=keys, basis=basis).write(f, **kwargs)
 
         return
 
@@ -942,8 +975,8 @@ class Well(object):
         rows = '<tr><th>{}</th></tr>'.format(r)
 
         styles = {
-            True: "#CCEECC",
-            False: "#FFCCCC",
+            True: "#CCEECC",   # Green
+            False: "#FFCCCC",  # Red
         }
 
         # Quality results.
@@ -1049,6 +1082,8 @@ class Well(object):
 
         Returns:
             ndarray.
+            or
+            ndarray, ndarray if return_basis=True
         """
         if keys is None:
             keys = [k for k, v in self.data.items() if isinstance(v, Curve)]

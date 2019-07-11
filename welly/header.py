@@ -11,7 +11,7 @@ from .fields import las_fields
 from . import utils
 
 
-class Header(object):
+class Header(dict):
     """
     The well metadata or header information.
 
@@ -19,17 +19,23 @@ class Header(object):
     """
     def __init__(self, params):
         """
-        Generic initializer for now.
+        Generic initializer.
         """
+        setattr(self, 'name', '')  # Prevent error when plotting.
+        setattr(self, 'uwi', '')
         for k, v in params.items():
             if k and v:
                 setattr(self, k, v)
 
-        # if getattr(self, 'uwi', None) is None:
-        #     self.uwi = ''
-
     def __repr__(self):
         return self.__dict__.__repr__()
+
+    def __setitem__(self, key, item):
+        self.__dict__[key] = item
+        return
+
+    def __getitem__(self, key):
+        return self.__dict__[key]
 
     @classmethod
     def from_lasio(cls, l, remap=None, funcs=None):
